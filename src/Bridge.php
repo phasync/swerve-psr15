@@ -110,7 +110,7 @@ final class Bridge
     private static function send(ClientRequest $client, ResponseInterface $response): void
     {
         if ($response instanceof WebSocketResponse) {
-            WebSocket::serve($client, $response->callback, $response->subprotocols, $response->origins, $response->maxMessage);
+            WebSocket::from($client, $response->callback, $response->subprotocols, $response->origins, $response->maxMessage);
 
             return;
         }

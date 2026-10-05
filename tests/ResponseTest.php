@@ -13,7 +13,7 @@ use Swerve\WebSocket;
 test('a WebSocketResponse survives the clones that middleware makes, with its callback and options', function () {
     $callback = static function (WebSocket $ws) {
     };
-    $response = WebSocketResponse::serve($callback, ['chat'], ['https://a.example'], 123);
+    $response = WebSocketResponse::from($callback, ['chat'], ['https://a.example'], 123);
 
     $clone = $response->withHeader('X-A', '1')->withAddedHeader('X-A', '2')->withStatus(200)->withoutHeader('X-B')->withProtocolVersion('1.1');
 
@@ -27,8 +27,8 @@ test('a WebSocketResponse survives the clones that middleware makes, with its ca
     expect($response->hasHeader('X-A'))->toBeFalse();
 });
 
-test('a WebSocketResponse has the defaults of WebSocket::serve()', function () {
-    $response = WebSocketResponse::serve(static fn () => null);
+test('a WebSocketResponse has the defaults of WebSocket::from()', function () {
+    $response = WebSocketResponse::from(static fn () => null);
 
     expect([$response->subprotocols, $response->origins, $response->maxMessage])->toBe([[], null, WebSocket::MAX_MESSAGE]);
 });

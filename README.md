@@ -71,7 +71,7 @@ use Swerve\WebSocket;
 $app->get('/chat', function ($request, $response) {
     $user = $request->getAttribute('user');          // read the request now, see below
 
-    return WebSocketResponse::serve(function (WebSocket $ws) use ($user) {
+    return WebSocketResponse::from(function (WebSocket $ws) use ($user) {
         foreach ($ws as $message) {                  // ends when the client leaves
             $ws->send("$user: $message");
         }
@@ -93,7 +93,7 @@ $app->post('/news', function ($request, $response) {
 });
 ```
 
-- `WebSocketResponse::serve($callback, $subprotocols = [], $origins = null, $maxMessage = WebSocket::MAX_MESSAGE)`
+- `WebSocketResponse::from($callback, $subprotocols = [], $origins = null, $maxMessage = WebSocket::MAX_MESSAGE)`
   and `EventStreamResponse::stream($callback, $headers = [])` return ordinary PSR-7 responses.
   Middleware may `with*()` them: the clones keep the callback and the options.
 - **The callback runs after the handler returned.** Take the user, the session or anything else from the

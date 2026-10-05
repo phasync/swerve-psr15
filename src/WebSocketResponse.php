@@ -17,7 +17,7 @@ use Swerve\WebSocket;
  * $app->get('/chat', function ($request, $response) {
  *     $user = $request->getAttribute('user');   // read the request now: the callback runs after the handler returned
  *
- *     return WebSocketResponse::serve(function (WebSocket $ws) use ($user) {
+ *     return WebSocketResponse::from(function (WebSocket $ws) use ($user) {
  *         foreach ($ws as $message) {
  *             $ws->send("$user: $message");
  *         }
@@ -53,14 +53,14 @@ final class WebSocketResponse extends Response
      *
      * The callback runs after the handler returned, in a coroutine of its own, and the connection
      * closes when it returns (1000) or throws (1011, logged). It is given swerve's `WebSocket`;
-     * the arguments are those of {@see WebSocket::serve()}.
+     * the arguments are those of {@see WebSocket::from()}.
      *
      * @param callable(WebSocket): void $callback
      * @param string[]                  $subprotocols the subprotocols you speak, in your order of preference; the first one the client offered is chosen
      * @param string[]|null             $origins      the allowed `Origin`s (compared case-insensitively), null: any; a client that sends none is let through
      * @param int                       $maxMessage   the largest message received, in bytes; a larger one closes with 1009
      */
-    public static function serve(callable $callback, array $subprotocols = [], ?array $origins = null, int $maxMessage = WebSocket::MAX_MESSAGE): self
+    public static function from(callable $callback, array $subprotocols = [], ?array $origins = null, int $maxMessage = WebSocket::MAX_MESSAGE): self
     {
         return new self($callback(...), $subprotocols, $origins, $maxMessage);
     }
