@@ -55,6 +55,61 @@ at start with exit code 2 and says what was returned.
 - An exception from the handler is logged, and answered with a 500 if the head was not sent yet; after
   that, the connection is aborted.
 
+## WebSockets and Server-Sent Events
+
+A handler asks for a WebSocket or an event stream by returning a response. swerve itself speaks the
+protocols (see its `docs/websocket.md`: close codes, limits, what a drain does); this package only
+lets a PSR-15 route or middleware stack ask for one.
+
+```php
+use Swerve\Psr15\EventStreamResponse;
+use Swerve\Psr15\WebSocketResponse;
+use Swerve\ServerSentEvents;
+use Swerve\Swerve;
+use Swerve\WebSocket;
+
+$app->get('/chat', function ($request, $response) {
+    $user = $request->getAttribute('user');          // read the request now, see below
+
+    return WebSocketResponse::serve(function (WebSocket $ws) use ($user) {
+        foreach ($ws as $message) {                  // ends when the client leaves
+            $ws->send("$user: $message");
+        }
+    }, subprotocols: ['chat.v1'], origins: ['https://example.com']);
+});
+
+$app->get('/news', function ($request, $response) {
+    return EventStreamResponse::stream(function (ServerSentEvents $sse) {
+        foreach (Swerve::subscribe('news', heartbeat: 15) as $message) {
+            null === $message ? $sse->comment('keep-alive') : $sse->send($message, event: 'news');
+        }
+    });
+});
+
+$app->post('/news', function ($request, $response) {
+    Swerve::publish('news', (string) $request->getBody());   // reaches every open socket and stream, on every worker
+
+    return $response->withStatus(202);
+});
+```
+
+- `WebSocketResponse::serve($callback, $subprotocols = [], $origins = null, $maxMessage = WebSocket::MAX_MESSAGE)`
+  and `EventStreamResponse::stream($callback, $headers = [])` return ordinary PSR-7 responses.
+  Middleware may `with*()` them: the clones keep the callback and the options.
+- **The callback runs after the handler returned.** Take the user, the session or anything else from the
+  PSR request before returning the response, and close over it with `use`. Do not keep the request
+  itself for the callback.
+- The WebSocket handshake is swerve's. A request that is not a handshake is answered 426, an invalid one
+  400 and an origin that `$origins` does not allow 403, all by swerve: headers that middleware added to the
+  response are not sent with a refusal, nor with the `101`.
+- The event stream has the headers of the response that reaches the adapter, so the `Access-Control-*` or
+  `Vary` that middleware added are sent. The status is always 200, and `Content-Type`, `Cache-Control` and
+  `X-Accel-Buffering` are swerve's: the response's own are ignored. `Last-Event-ID` is on the PSR request and
+  on `ServerSentEvents::lastEventId()`.
+- A `HEAD` request to an event stream gets the head and no body; the callback does not run.
+- The stream ends when the callback returns; a callback that throws is logged and the connection aborted.
+  A client that left makes the next `send()` throw `phasync\IOException`: let it leave the callback.
+
 ## Other ways to run an application on swerve
 
 swerve picks the adapter from what is installed, so `--adapter=` is only needed when several are.
