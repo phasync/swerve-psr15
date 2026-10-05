@@ -33,7 +33,7 @@ test('text and binary are echoed through a Slim route, several in a row, and "by
     rt_clean($log);
 })->with('modes');
 
-test('the middleware that clones the response does not stop the handshake or the callback, and its headers are not on the 101', function (array $mode) {
+test('the middleware\'s headers are on the 101 the client sees, and the handshake and the callback work', function (array $mode) {
     [$process, $addr, $log] = rt_start($mode);
     try {
         // The fixture's middleware adds headers to every response, with a clone
@@ -41,7 +41,10 @@ test('the middleware that clones the response does not stop the handshake or the
 
         [$conn, $head] = ws_handshake($addr, '/ws/echo');
         expect($head['status'])->toBe(101);
-        expect($head['headers'])->not->toHaveKeys(['x-mw', 'access-control-allow-origin']);
+        expect($head['headers']['x-mw'])->toBe('seen');
+        expect($head['headers']['access-control-allow-origin'])->toBe('*');
+        expect($head['headers']['upgrade'])->toBe('websocket');
+        expect($head['headers'])->toHaveKey('sec-websocket-accept');
         ws_send($conn, 1, 'still works');
         expect(ws_read($conn))->toBe([1, 'still works']);
     } finally {
@@ -50,7 +53,7 @@ test('the middleware that clones the response does not stop the handshake or the
     rt_clean($log);
 })->with('modes');
 
-test('a GET that is no handshake is answered 426 by swerve, without the middleware\'s headers, and the connection serves on', function (array $mode) {
+test('a refusal is a PSR response the middleware decorates: 426, 400 and 403 carry its headers, and the connection serves on', function (array $mode) {
     [$process, $addr, $log] = rt_start($mode);
     try {
         $conn = native_connect($addr);
@@ -59,7 +62,8 @@ test('a GET that is no handshake is answered 426 by swerve, without the middlewa
 
         expect($response['status'])->toBe(426);
         expect($response['headers']['upgrade'])->toBe('websocket');
-        expect($response['headers'])->not->toHaveKey('x-mw');
+        expect($response['headers']['x-mw'])->toBe('seen');
+        expect($response['body'])->toBe('This address speaks WebSocket');
         \fwrite($conn, "GET /hello HTTP/1.1\r\nHost: t\r\n\r\n");
         expect(native_read_response($conn)['body'])->toBe('Hello');
 
@@ -67,6 +71,25 @@ test('a GET that is no handshake is answered 426 by swerve, without the middlewa
         [$bad, $head] = ws_handshake($addr, '/ws/echo', ['Sec-WebSocket-Version' => '8']);
         expect($head['status'])->toBe(400);
         expect($head['headers']['sec-websocket-version'])->toBe('13');
+        expect($head['headers']['x-mw'])->toBe('seen');
+
+        // An origin that is not allowed is 403
+        [, $head] = ws_handshake($addr, '/ws/origin', ['Origin' => 'https://evil.example']);
+        expect($head['status'])->toBe(403);
+        expect($head['headers']['x-mw'])->toBe('seen');
+        expect($head['headers']['access-control-allow-origin'])->toBe('*');
+        expect(rt_live($addr, 'ws', 0)[0])->toBe(0);
+    } finally {
+        native_stop($process);
+    }
+    rt_clean($log);
+})->with('modes');
+
+test('a 101 response that is given another status is sent as that response, and the handler does not run', function (array $mode) {
+    [$process, $addr, $log] = rt_start($mode);
+    try {
+        [, $head] = ws_handshake($addr, '/ws/denied');
+        expect($head['status'])->toBe(403);
         expect(rt_live($addr, 'ws', 0)[0])->toBe(0);
     } finally {
         native_stop($process);

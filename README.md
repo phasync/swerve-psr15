@@ -71,7 +71,7 @@ use Swerve\WebSocket;
 $app->get('/chat', function ($request, $response) {
     $user = $request->getAttribute('user');          // read the request now, see below
 
-    return WebSocketResponse::from(function (WebSocket $ws) use ($user) {
+    return WebSocketResponse::from($request, function (WebSocket $ws) use ($user) {
         foreach ($ws as $message) {                  // ends when the client leaves
             $ws->send("$user: $message");
         }
@@ -93,15 +93,23 @@ $app->post('/news', function ($request, $response) {
 });
 ```
 
-- `WebSocketResponse::from($callback, $subprotocols = [], $origins = null, $maxMessage = WebSocket::MAX_MESSAGE)`
+- `WebSocketResponse::from($request, $handler, $subprotocols = [], $origins = null, $maxMessage = WebSocket::MAX_MESSAGE)`
   and `EventStreamResponse::stream($callback, $headers = [])` return ordinary PSR-7 responses.
-  Middleware may `with*()` them: the clones keep the callback and the options.
-- **The callback runs after the handler returned.** Take the user, the session or anything else from the
+  Middleware may `with*()` them: the clones keep the handler and the options.
+- **The handler is swerve's `WebSocket`**, the same class in every framework adapter, so what
+  swerve's `docs/websocket.md` shows works here unchanged.
+- **The handler runs after the route returned.** Take the user, the session or anything else from the
   PSR request before returning the response, and close over it with `use`. Do not keep the request
-  itself for the callback.
-- The WebSocket handshake is swerve's. A request that is not a handshake is answered 426, an invalid one
-  400 and an origin that `$origins` does not allow 403, all by swerve: headers that middleware added to the
-  response are not sent with a refusal, nor with the `101`.
+  itself for the handler.
+- **The handshake is checked in `from()`, by swerve's own decision, and the answer is a PSR response.**
+  A request that is not a handshake gets 426, an invalid one 400 (naming version 13) and an origin that
+  `$origins` does not allow 403: ordinary responses, built as swerve itself would answer, so middleware
+  decorates them like any other. A handshake gets a real `101` response with `Upgrade`, `Connection`,
+  `Sec-WebSocket-Accept` and the chosen `Sec-WebSocket-Protocol`; middleware may add headers to it (the
+  `Access-Control-*` or `Set-Cookie` of the application's middleware are on the `101` the client sees),
+  and the clones keep the handler and the limit. When the response reaches the adapter, the connection
+  goes to swerve with the response's headers as they are, and the handler runs. A middleware that
+  changes the status of the `101` response has refused the upgrade: it is sent as any response.
 - The event stream has the headers of the response that reaches the adapter, so the `Access-Control-*` or
   `Vary` that middleware added are sent. The status is always 200, and `Content-Type`, `Cache-Control` and
   `X-Accel-Buffering` are swerve's: the response's own are ignored. `Last-Event-ID` is on the PSR request and

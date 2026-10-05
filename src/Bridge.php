@@ -23,8 +23,9 @@ use Swerve\WebSocket;
  * memory is fine as long as its stream produces it piecemeal. The response has a Content-Length
  * when the application declared one or its body knows its size, and is otherwise chunked.
  *
- * A {@see WebSocketResponse} or {@see EventStreamResponse} is not written as a body: the exchange
- * becomes a WebSocket, or a stream of events, served by swerve's own codec.
+ * A {@see WebSocketResponse} with the status 101, or an {@see EventStreamResponse}, is not written as a
+ * body: the exchange becomes a WebSocket (the response's headers are the handshake's, as middleware
+ * left them), or a stream of events, served by swerve's own codec.
  *
  * An exception from the handler is swerve's to deal with: a 500 when the head was not sent yet,
  * an aborted connection after, logged either way.
@@ -109,8 +110,8 @@ final class Bridge
      */
     private static function send(ClientRequest $client, ResponseInterface $response): void
     {
-        if ($response instanceof WebSocketResponse) {
-            WebSocket::from($client, $response->callback, $response->subprotocols, $response->origins, $response->maxMessage);
+        if ($response instanceof WebSocketResponse && 101 === $response->getStatusCode()) {
+            WebSocket::upgrade($client, $response->getHeaders(), $response->callback, $response->maxMessage);
 
             return;
         }

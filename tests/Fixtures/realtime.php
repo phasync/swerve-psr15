@@ -61,7 +61,7 @@ $app->post('/publish/{topic}', function (Request $request, Response $response, a
 });
 
 // An echo; "bye" ends the callback
-$app->get('/ws/echo', fn () => WebSocketResponse::from(static function (WebSocket $ws) use ($counted) {
+$app->get('/ws/echo', fn (Request $request) => WebSocketResponse::from($request, static function (WebSocket $ws) use ($counted) {
     $counted('ws', static function () use ($ws) {
         foreach ($ws as $message) {
             if ('bye' === $message) {
@@ -73,16 +73,21 @@ $app->get('/ws/echo', fn () => WebSocketResponse::from(static function (WebSocke
 }));
 
 // The first subprotocol of the server's list that the client offered
-$app->get('/ws/protocol', fn () => WebSocketResponse::from(static function (WebSocket $ws) {
+$app->get('/ws/protocol', fn (Request $request) => WebSocketResponse::from($request, static function (WebSocket $ws) {
     $ws->send(\json_encode($ws->subprotocol));
 }, ['v2.chat', 'v1.chat']));
 
-$app->get('/ws/origin', fn () => WebSocketResponse::from(static function (WebSocket $ws) {
+// A middleware that turns the 101 into a refusal has refused the upgrade
+$app->get('/ws/denied', fn (Request $request) => WebSocketResponse::from($request, static function (WebSocket $ws) {
+    $ws->send('never');
+})->withStatus(403));
+
+$app->get('/ws/origin', fn (Request $request) => WebSocketResponse::from($request, static function (WebSocket $ws) {
     $ws->send('welcome');
 }, origins: ['https://good.example']));
 
 // Everything published to "news", forwarded
-$app->get('/ws/news', fn () => WebSocketResponse::from(static function (WebSocket $ws) use ($counted) {
+$app->get('/ws/news', fn (Request $request) => WebSocketResponse::from($request, static function (WebSocket $ws) use ($counted) {
     $news = Swerve::subscribe('news');
     $counted('ws', static function () use ($ws, $news) {
         $ws->send('subscribed');
@@ -96,14 +101,14 @@ $app->get('/ws/news', fn () => WebSocketResponse::from(static function (WebSocke
 $app->get('/ws/me', function (Request $request) {
     $user = $request->getCookieParams()['user'] ?? $request->getHeaderLine('X-User');
 
-    return WebSocketResponse::from(static function (WebSocket $ws) use ($user) {
+    return WebSocketResponse::from($request, static function (WebSocket $ws) use ($user) {
         foreach ($ws as $message) {
             $ws->send("$user: $message");
         }
     });
 });
 
-$app->get('/ws/small', fn () => WebSocketResponse::from(static function (WebSocket $ws) {
+$app->get('/ws/small', fn (Request $request) => WebSocketResponse::from($request, static function (WebSocket $ws) {
     foreach ($ws as $message) {
         $ws->send($message);
     }

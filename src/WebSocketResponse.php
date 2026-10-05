@@ -3,21 +3,22 @@
 namespace Swerve\Psr15;
 
 use phasync\Psr\Response;
+use Psr\Http\Message\ResponseInterface;
+use Psr\Http\Message\ServerRequestInterface;
 use Swerve\WebSocket;
 
 /**
- * A PSR-7 response that asks the adapter to upgrade the connection to a WebSocket.
+ * The PSR-7 response that upgrades a request to a WebSocket: the entry of the adapter, {@see WebSocketResponse::from()}.
  *
- * A PSR-15 handler (a Slim route, or a middleware stack around it) returns it like any response;
- * {@see Bridge} then answers the handshake and runs the callback on the open socket, with swerve's
- * {@see WebSocket}. The codec, the close codes and the limits are swerve's: see its
- * `docs/websocket.md`.
+ * The handler of the application is always given swerve's own {@see WebSocket}, the same class in
+ * every framework adapter, so the examples in swerve's `docs/websocket.md` apply as they are. The
+ * codec, the close codes and the limits are swerve's too.
  *
  * ```php
  * $app->get('/chat', function ($request, $response) {
- *     $user = $request->getAttribute('user');   // read the request now: the callback runs after the handler returned
+ *     $user = $request->getAttribute('user');   // read the request now: the handler runs after the route returned
  *
- *     return WebSocketResponse::from(function (WebSocket $ws) use ($user) {
+ *     return WebSocketResponse::from($request, function (WebSocket $ws) use ($user) {
  *         foreach ($ws as $message) {
  *             $ws->send("$user: $message");
  *         }
@@ -25,43 +26,52 @@ use Swerve\WebSocket;
  * });
  * ```
  *
- * It is an ordinary immutable response, with the placeholder status 101: middleware may `with*()` it
- * and the clones keep the callback and the options. A handshake that swerve refuses (426 for a plain
- * GET, 400 for an invalid handshake, 403 for an origin that is not allowed) is answered by swerve
- * itself, and neither a refusal nor the 101 carries the headers that middleware added to this response.
+ * `from()` checks the handshake in the request, with swerve's own decision ({@see WebSocket::handshake()}),
+ * and returns an ordinary PSR-7 response either way. A request that is no handshake gets the refusal
+ * swerve itself would send (426 for a plain GET, 400 for an invalid handshake, 403 for an origin that is
+ * not allowed), a plain response that middleware decorates like any other. A handshake gets a real
+ * `101` response with `Upgrade`, `Connection`, `Sec-WebSocket-Accept` and the chosen
+ * `Sec-WebSocket-Protocol`: middleware may add headers to it (CORS, cookies), and the clones it makes
+ * keep the handler and the limit. When {@see Bridge} sends it, the connection is handed to swerve with
+ * the response's headers as they are, and the handler runs.
  *
  * @see EventStreamResponse
  */
 final class WebSocketResponse extends Response
 {
     /**
+     * @param array<string, string>     $headers
      * @param \Closure(WebSocket): void $callback
-     * @param string[]                  $subprotocols
-     * @param string[]|null             $origins
      */
-    private function __construct(
-        public readonly \Closure $callback,
-        public readonly array $subprotocols,
-        public readonly ?array $origins,
-        public readonly int $maxMessage,
-    ) {
-        parent::__construct(101);
+    private function __construct(array $headers, public readonly \Closure $callback, public readonly int $maxMessage)
+    {
+        parent::__construct(101, $headers);
     }
 
     /**
-     * A response that upgrades the request to a WebSocket and runs `$callback` on it.
+     * The response to a WebSocket request: a `101` that upgrades it and runs `$handler`, or the refusal.
      *
-     * The callback runs after the handler returned, in a coroutine of its own, and the connection
-     * closes when it returns (1000) or throws (1011, logged). It is given swerve's `WebSocket`;
-     * the arguments are those of {@see WebSocket::from()}.
+     * The handler runs after the route returned, in a coroutine of its own, and the connection closes
+     * when it returns (1000) or throws (1011, logged). It is given swerve's `WebSocket`; the other
+     * arguments are those of {@see WebSocket::from()}. Take the user or the session from `$request`
+     * before returning, and let the handler capture it: the request is not for the handler to keep.
      *
-     * @param callable(WebSocket): void $callback
-     * @param string[]                  $subprotocols the subprotocols you speak, in your order of preference; the first one the client offered is chosen
+     * @param callable(WebSocket): void $handler
+     * @param string[]                  $subprotocols the subprotocols you speak, in your order of preference: the first one the client offered is chosen
      * @param string[]|null             $origins      the allowed `Origin`s (compared case-insensitively), null: any; a client that sends none is let through
      * @param int                       $maxMessage   the largest message received, in bytes; a larger one closes with 1009
      */
-    public static function from(callable $callback, array $subprotocols = [], ?array $origins = null, int $maxMessage = WebSocket::MAX_MESSAGE): self
+    public static function from(ServerRequestInterface $request, callable $handler, array $subprotocols = [], ?array $origins = null, int $maxMessage = WebSocket::MAX_MESSAGE): ResponseInterface
     {
-        return new self($callback(...), $subprotocols, $origins, $maxMessage);
+        $handshake = WebSocket::handshake(
+            $request->getMethod(),
+            $request->getProtocolVersion(),
+            \array_change_key_case($request->getHeaders()),
+            0 !== $request->getBody()->getSize(),
+            $subprotocols,
+            $origins,
+        );
+
+        return $handshake->accepted() ? new self($handshake->headers, $handler(...), $maxMessage) : new Response($handshake->status, $handshake->headers, $handshake->body);
     }
 }
