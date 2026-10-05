@@ -291,3 +291,166 @@ function log_wait(string $log, string $regex, float $timeout = 5): array
 
     return $matches;
 }
+
+/*
+ * Helpers of the WebSocket and Server-Sent Events tests (tests/Fixtures/realtime.php), copied from
+ * swerve's own tests: a WebSocket client (RFC 6455), minimal and written from the specification.
+ */
+
+dataset('modes', ['plain' => [[]], 'ext' => [['--ext']]]);
+
+/**
+ * Serve the realtime fixture in the mode of the dataset ([] or ['--ext']), and check that it is the mode.
+ *
+ * @param string[] $mode
+ *
+ * @return array{0: resource, 1: string, 2: string} the process, its address and its log file
+ */
+function rt_start(array $mode, int $workers = 1): array
+{
+    $started = psr15_start('realtime.php', $mode, $workers);
+    expect(psr15_get($started[1], '/ext')['body'])->toBe($mode ? '1' : '0');
+
+    return $started;
+}
+
+/** Nothing in the log that a clean run would not have: no error, no PHP warning. */
+function rt_clean(string $log): void
+{
+    $text = (string) \file_get_contents($log);
+    expect(\preg_match('/(ERROR|CRITICAL|WARNING|Unhandled|failed|Warning:|Notice:|Deprecated:|Fatal error)/', $text))->toBe(0, $text);
+}
+
+/** Exactly $length bytes from $conn, or null when the connection ended before the first byte. */
+function read_exactly($conn, int $length): ?string
+{
+    $data = '';
+    while (\strlen($data) < $length) {
+        $chunk = \fread($conn, $length - \strlen($data));
+        if (false === $chunk || '' === $chunk) {
+            if (\feof($conn) || \stream_get_meta_data($conn)['timed_out']) {
+                return '' === $data ? null : throw new RuntimeException('Connection ended inside a read');
+            }
+            continue;
+        }
+        $data .= $chunk;
+    }
+
+    return $data;
+}
+
+/**
+ * Send a handshake request with $headers added to the usual ones (a null value removes one), and read the response head.
+ *
+ * @param array<string, string|null> $headers
+ *
+ * @return array{0: resource, 1: array{status: int, headers: array<string, string>, cookies: string[]}}
+ */
+function ws_handshake(string $addr, string $path, array $headers = [], string $method = 'GET'): array
+{
+    $headers += [
+        'Host'                  => 'test',
+        'Upgrade'               => 'websocket',
+        'Connection'            => 'Upgrade',
+        'Sec-WebSocket-Key'     => \base64_encode(\random_bytes(16)),
+        'Sec-WebSocket-Version' => '13',
+    ];
+    $conn = native_connect($addr);
+    $head = "$method $path HTTP/1.1\r\n";
+    foreach (\array_filter($headers, static fn ($v) => null !== $v) as $name => $value) {
+        $head .= "$name: $value\r\n";
+    }
+    \fwrite($conn, "$head\r\n");
+
+    return [$conn, native_read_head($conn)];
+}
+
+/**
+ * Open a WebSocket: the handshake, checking the 101 and its Sec-WebSocket-Accept.
+ *
+ * @param array<string, string|null> $headers
+ *
+ * @return resource the blocking connection, with a 5 s timeout
+ */
+function ws_connect(string $addr, string $path, array $headers = [])
+{
+    $key             = \base64_encode(\random_bytes(16));
+    [$conn, $head]   = ws_handshake($addr, $path, $headers + ['Sec-WebSocket-Key' => $key]);
+    expect($head['status'] ?? null)->toBe(101);
+    expect($head['headers']['sec-websocket-accept'] ?? null)->toBe(\base64_encode(\sha1($key . '258EAFA5-E914-47DA-95CA-C5AB0DC85B11', true)));
+
+    return $conn;
+}
+
+/** Send one frame, masked as a client must. */
+function ws_send($conn, int $opcode, string $payload, bool $fin = true): void
+{
+    $n    = \strlen($payload);
+    $mask = \random_bytes(4);
+    $head = \chr(($fin ? 0x80 : 0) | $opcode) . match (true) {
+        $n < 126   => \chr(0x80 | $n),
+        $n < 65536 => \chr(0x80 | 126) . \pack('n', $n),
+        default    => \chr(0x80 | 127) . \pack('J', $n),
+    };
+    \fwrite($conn, $head . $mask . ($payload ^ \substr(\str_repeat($mask, \intdiv($n, 4) + 1), 0, $n)));
+}
+
+/**
+ * The next frame from the server: [opcode, payload], or null when the connection ended.
+ *
+ * @return array{0: int, 1: string}|null
+ */
+function ws_read($conn): ?array
+{
+    $head = read_exactly($conn, 2);
+    if (null === $head) {
+        return null;
+    }
+    $length = \ord($head[1]) & 0x7F;
+    if (126 === $length) {
+        $length = \unpack('n', read_exactly($conn, 2))[1];
+    } elseif (127 === $length) {
+        $length = \unpack('J', read_exactly($conn, 8))[1];
+    }
+
+    return [\ord($head[0]) & 0x0F, $length > 0 ? read_exactly($conn, $length) : ''];
+}
+
+/** The server ended the connection cleanly: a FIN, not a timeout. */
+function ws_end($conn): bool
+{
+    $data = @\fread($conn, 1);
+
+    return '' === $data && \feof($conn) && !\stream_get_meta_data($conn)['timed_out'];
+}
+
+/** The server closes with $code and then ends the connection. */
+function ws_expect_close($conn, int $code): void
+{
+    expect(ws_read($conn))->toBe([8, \pack('n', $code)]);
+    expect(ws_end($conn))->toBeTrue();
+}
+
+/**
+ * Wait until /live/$kind says the callbacks of that kind running now are $n, summed over the
+ * workers; the sum it ended with, and how many workers had one.
+ *
+ * @return array{0: int, 1: int}
+ */
+function rt_live(string $addr, string $kind, int $n, int $workers = 1): array
+{
+    $deadline = \microtime(true) + 8;
+    do {
+        $seen = [];
+        for ($i = 0; $i < 40 * $workers && \count($seen) < $workers; ++$i) {
+            [$pid, $count] = \json_decode(psr15_get($addr, "/live/$kind")['body'], true);
+            $seen[$pid]    = $count;
+        }
+        if (\array_sum($seen) === $n) {
+            break;
+        }
+        \usleep(50000);
+    } while (\microtime(true) < $deadline);
+
+    return [\array_sum($seen), \count(\array_filter($seen))];
+}
