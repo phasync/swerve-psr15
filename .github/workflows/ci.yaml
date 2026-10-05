@@ -1,0 +1,60 @@
+name: 🧪 CI
+
+on:
+  push:
+    branches:
+      - 'main'
+  pull_request:
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ["8.2", "8.3", "8.4", "8.5"]
+
+    name: ⚙️ Running tests for PHP ${{ matrix.php }}
+
+    # The adapter must behave the same with and without the phasync extension, so the suite runs
+    # both ways: the binary ships inside phasync
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v6
+
+      - name: Check commit messages
+        uses: webiny/action-conventional-commits@v1.3.0
+
+      - name: 🧰 Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: pcntl, posix, sockets, mysqli
+
+      - name: ✅ Validate composer.json
+        run: composer validate --strict
+
+      - name: 📥 Install dependencies
+        run: composer install --no-progress --prefer-dist
+
+      - name: 🔍 Check php-cs-fixer
+        run: composer php-cs-fixer-dry-run
+
+      - name: ✅ Tests
+        run: vendor/bin/pest --stop-on-defect
+
+      - name: ✅ Tests with the phasync extension
+        env:
+          PHASYNC_CI_LICENSE: ${{ secrets.PHASYNC_CI_LICENSE }}
+        run: |
+          # swerve's processes inherit the scanned ini directory, which -d would not reach
+          mkdir "$RUNNER_TEMP/ini"
+          echo "extension=$PWD/vendor/phasync/phasync/ext/phasync-${{ matrix.php }}-nts-x86_64-glibc.so" > "$RUNNER_TEMP/ini/phasync.ini"
+          PHP_INI_SCAN_DIR=":$RUNNER_TEMP/ini" php -r 'extension_loaded("phasync") || exit(1);'
+          # without the secret the extension runs on its free tier
+          if [ -n "$PHASYNC_CI_LICENSE" ]; then
+            printf '%s' "$PHASYNC_CI_LICENSE" > "$RUNNER_TEMP/phasync.license"
+            export PHASYNC_LICENSE_FILE="$RUNNER_TEMP/phasync.license"
+          fi
+          PHP_INI_SCAN_DIR=":$RUNNER_TEMP/ini" vendor/bin/pest --stop-on-defect
