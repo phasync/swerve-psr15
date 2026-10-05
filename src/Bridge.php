@@ -41,6 +41,9 @@ final class Bridge
 {
     private const CHUNK = 65536;
 
+    /** @var \WeakMap<\Fiber, true>|null the coroutines sending a `101`'s body */
+    private static ?\WeakMap $upgrading = null;
+
     private function __construct()
     {
     }
@@ -153,8 +156,23 @@ final class Bridge
      * Write a `101`'s body (the outbound frames) to the client until it ends; a write that fails
      * closes the body, so the handler's own writes fail and it winds down, instead of propagating.
      */
+    /**
+     * Whether the current coroutine is sending a `101`'s body: only then does a {@see WebSocketBody} start its handler.
+     *
+     * @internal
+     */
+    public static function upgrading(): bool
+    {
+        $fiber = \Fiber::getCurrent();
+
+        return null !== $fiber && isset(self::$upgrading[$fiber]);
+    }
+
     private static function pumpUpgrade(ClientRequest $client, StreamInterface $body): void
     {
+        $fiber = \Fiber::getCurrent();
+        self::$upgrading ??= new \WeakMap();
+        self::$upgrading[$fiber] = true;
         try {
             do {
                 $chunk = $body->read(self::CHUNK);
@@ -164,6 +182,8 @@ final class Bridge
             } while (!$body->eof());
         } catch (IOException) {
             $body->close();
+        } finally {
+            unset(self::$upgrading[$fiber]);
         }
     }
 }

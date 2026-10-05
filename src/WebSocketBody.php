@@ -11,11 +11,11 @@ use Swerve\WebSocket;
  * The `101` response's body: the outbound WebSocket frames, as a PSR-7 stream a middleware may wrap
  * around (`withBody()`) to see every byte the client is sent.
  *
- * Nothing of phasync's, and no coroutine, is touched until the first `read()`: that is when the
- * handler starts (its own coroutine, over a {@see WebSocketDuplex} on an unbuffered channel and the
- * request's body), so a middleware that replaces the `101` with another response (a `403`, say)
- * never starts it, and building the response itself ({@see WebSocketResponse::from()}) needs no
- * coroutine. `close()` ends the channel from this side, so a handler mid-send sees its write fail.
+ * Nothing of phasync's, and no coroutine, is touched until the first `read()` while {@see Bridge}
+ * sends a `101`: that is when the handler starts (its own coroutine, over a {@see WebSocketDuplex} on
+ * an unbuffered channel and the request's body). Read anywhere else, as the body of a response whose
+ * status middleware changed (a `403`, say), it is empty and the handler never starts. Building the
+ * response itself ({@see WebSocketResponse::from()}) needs no coroutine. `close()` ends the channel from this side, so a handler mid-send sees its write fail.
  *
  * @internal built by {@see WebSocketResponse}
  */
@@ -65,15 +65,10 @@ final class WebSocketBody implements StreamInterface
         return $this->position;
     }
 
-    /**
-     * True before the first read(), so a response whose status middleware changed away from `101`
-     * (sent as an ordinary body, which checks `eof()` before ever calling `read()`) is an empty body
-     * and never starts the handler; true again once closed, or the handler has ended and nothing is
-     * left buffered.
-     */
+    /** True once closed, or once the handler has ended and nothing is left buffered. */
     public function eof(): bool
     {
-        return !$this->started || $this->closed || ($this->ended && '' === $this->buffer);
+        return $this->closed || ($this->ended && '' === $this->buffer);
     }
 
     public function isSeekable(): bool
@@ -115,6 +110,11 @@ final class WebSocketBody implements StreamInterface
             return '';
         }
         if (!$this->started) {
+            if (!Bridge::upgrading()) {
+                $this->ended = true; // not sent as a 101: there is no WebSocket to run
+
+                return '';
+            }
             $this->started = true;
             \phasync::channel($outbound, $write);
             $outbound->activate(); // the bridge (the creator) waits on it alone until the handler, started here, writes

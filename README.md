@@ -111,7 +111,7 @@ $app->post('/news', function ($request, $response) {
 - **The `101`'s body is the outbound WebSocket frames; the request's body is read for the inbound ones.**
   A middleware that `withBody()`s the response sees every frame the client is sent, and one that
   `withBody()`s the request before the route sees every frame the client sent, like any other body.
-  Nothing of the handler runs, and no coroutine is touched, before the bridge's first read of that body:
+  Nothing of the handler runs, and no coroutine is touched, before the bridge reads that body as a `101`:
   a middleware that changes the status of the `101` response (a `403`, say) has refused the upgrade, and
   it is sent as any response — the handler never starts.
 - The event stream has the headers of the response that reaches the adapter, so the `Access-Control-*` or

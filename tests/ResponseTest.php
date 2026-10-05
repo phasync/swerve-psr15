@@ -116,3 +116,18 @@ test('an EventStreamResponse survives clones, and carries the headers it was giv
     expect($clone->getStatusCode())->toBe(200);
     expect($clone->getHeaders())->toBe(['Access-Control-Allow-Origin' => ['*'], 'Vary' => ['Origin']]);
 });
+
+test('the 101 body is honest about eof: not at the end before it is read, empty when read outside an upgrade, and the handler never runs', function () {
+    $ran      = false;
+    $response = WebSocketResponse::from(handshake_request(), static function () use (&$ran) {
+        $ran = true;
+    });
+    $body = $response->getBody();
+    expect($body->eof())->toBeFalse();
+
+    phasync::run(static function () use ($body) {
+        expect($body->read(65536))->toBe('');
+    });
+    expect($body->eof())->toBeTrue()
+        ->and($ran)->toBeFalse();
+});
