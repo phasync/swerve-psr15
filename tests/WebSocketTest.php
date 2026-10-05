@@ -97,6 +97,51 @@ test('a 101 response that is given another status is sent as that response, and 
     rt_clean($log);
 })->with('modes');
 
+test('a middleware wrapping the response body logs the outbound frames, byte for byte what the client received', function (array $mode) {
+    [$process, $addr, $log] = rt_start($mode);
+    $out                    = temp_path();
+    try {
+        $conn = ws_connect($addr, '/ws/log-out', ['X-Log' => $out]);
+        ws_send($conn, 1, 'hello');
+        expect(ws_read($conn))->toBe([1, 'HELLO']);
+        ws_send($conn, 2, "\x00\xFF");
+        expect(ws_read($conn))->toBe([2, "\x00\xFF"]);
+        ws_send($conn, 1, 'bye');
+        ws_expect_close($conn, 1000);
+
+        $logged  = (string) \file_get_contents($out);
+        $expect  = server_frame(1, 'HELLO') . server_frame(2, "\x00\xFF") . server_frame(8, \pack('n', 1000));
+        expect($logged)->toBe($expect);
+    } finally {
+        native_stop($process);
+    }
+    rt_clean($log);
+})->with('modes');
+
+test('a middleware wrapping the request body logs the inbound frames, byte for byte what the client sent', function (array $mode) {
+    [$process, $addr, $log] = rt_start($mode);
+    $in                     = temp_path();
+    try {
+        $conn = ws_connect($addr, '/ws/log-in', ['X-Log' => $in]);
+        $sent = '';
+        foreach (['hello', 'world'] as $word) {
+            $frame = client_frame(1, $word);
+            $sent .= $frame;
+            \fwrite($conn, $frame);
+            expect(ws_read($conn))->toBe([1, \strtoupper($word)]);
+        }
+        $bye   = client_frame(1, 'bye');
+        $sent .= $bye;
+        \fwrite($conn, $bye);
+        ws_expect_close($conn, 1000);
+
+        expect((string) \file_get_contents($in))->toBe($sent);
+    } finally {
+        native_stop($process);
+    }
+    rt_clean($log);
+})->with('modes');
+
 test('the origin allow-list: another origin is 403, an allowed one (in any case) and none at all are let in', function (array $mode) {
     [$process, $addr, $log] = rt_start($mode);
     try {

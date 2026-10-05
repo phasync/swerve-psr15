@@ -13,9 +13,13 @@
   handshake with swerve's `WebSocket::handshake()` and returns an ordinary PSR-7 response: the refusal
   swerve would send (426, 400 or 403), which middleware decorates like any response, or a real `101`
   with the handshake headers, which middleware may add headers to and whose clones keep the handler and
-  the message size limit. The bridge hands the connection to swerve with the response's headers as they
-  are (`WebSocket::upgrade()`). The handler is swerve's `WebSocket`, the same in every adapter; there are
-  subprotocols, an origin allow-list and a message size limit.
+  the message size limit. The `101`'s body is the outbound WebSocket frames, and the request's body is
+  read for the inbound ones: a middleware that `withBody()`s either sees every frame, like any other
+  body. Nothing runs, and no coroutine is touched, before the bridge's first read of that body: it is
+  what starts the handler (over `WebSocket::run()`, swerve's entry for a connection whose `101` the
+  bridge already sent), so a middleware that turns the `101` into another response never starts one.
+  The handler is swerve's `WebSocket`, the same in every adapter; there are subprotocols, an origin
+  allow-list and a message size limit.
 - `Swerve\Psr15\EventStreamResponse::stream()`: a PSR-7 response that streams Server-Sent Events from a
   callback receiving swerve's `ServerSentEvents`; the headers on the response, including those that
   middleware added, are sent with the head.

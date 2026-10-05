@@ -29,11 +29,17 @@ use Swerve\WebSocket;
  * `from()` checks the handshake in the request, with swerve's own decision ({@see WebSocket::handshake()}),
  * and returns an ordinary PSR-7 response either way. A request that is no handshake gets the refusal
  * swerve itself would send (426 for a plain GET, 400 for an invalid handshake, 403 for an origin that is
- * not allowed), a plain response that middleware decorates like any other. A handshake gets a real
- * `101` response with `Upgrade`, `Connection`, `Sec-WebSocket-Accept` and the chosen
- * `Sec-WebSocket-Protocol`: middleware may add headers to it (CORS, cookies), and the clones it makes
- * keep the handler and the limit. When {@see Bridge} sends it, the connection is handed to swerve with
- * the response's headers as they are, and the handler runs.
+ * not allowed), a plain response that middleware decorates like any other. A handshake gets a `101`
+ * response with `Upgrade`, `Connection`, `Sec-WebSocket-Accept` and the chosen `Sec-WebSocket-Protocol`:
+ * middleware may add headers to it (CORS, cookies), and the clones it makes keep `$callback` and
+ * `$maxMessage`.
+ *
+ * The `101`'s body is the outbound frames (a middleware may `withBody()` it to inspect them), and the
+ * request's body given to `from()` is read for the inbound ones (a middleware that wrapped it with
+ * `withBody()` before the route is honoured too). Neither is read, and nothing of phasync's is touched,
+ * until {@see Bridge} starts pumping the response body: the handler itself does not run before then, so
+ * a middleware that turns the `101` into another response (a `403`, say) is never joined by a handler
+ * that started anyway. `from()` itself needs no coroutine: only that first read does.
  *
  * @see EventStreamResponse
  */
@@ -43,18 +49,19 @@ final class WebSocketResponse extends Response
      * @param array<string, string>     $headers
      * @param \Closure(WebSocket): void $callback
      */
-    private function __construct(array $headers, public readonly \Closure $callback, public readonly int $maxMessage)
+    private function __construct(array $headers, public readonly \Closure $callback, public readonly int $maxMessage, WebSocketBody $body)
     {
-        parent::__construct(101, $headers);
+        parent::__construct(101, $headers, $body);
     }
 
     /**
      * The response to a WebSocket request: a `101` that upgrades it and runs `$handler`, or the refusal.
      *
-     * The handler runs after the route returned, in a coroutine of its own, and the connection closes
-     * when it returns (1000) or throws (1011, logged). It is given swerve's `WebSocket`; the other
-     * arguments are those of {@see WebSocket::from()}. Take the user or the session from `$request`
-     * before returning, and let the handler capture it: the request is not for the handler to keep.
+     * The handler runs after {@see Bridge} starts reading the `101`'s body (lazily, on its first byte),
+     * in a coroutine of its own, and the connection closes when it returns (1000) or throws (1011, logged).
+     * It is given swerve's `WebSocket`; the other arguments are those of {@see WebSocket::from()}. Take
+     * the user or the session from `$request` before returning, and let the handler capture it: the
+     * request is not for the handler to keep.
      *
      * @param callable(WebSocket): void $handler
      * @param string[]                  $subprotocols the subprotocols you speak, in your order of preference: the first one the client offered is chosen
@@ -71,7 +78,15 @@ final class WebSocketResponse extends Response
             $subprotocols,
             $origins,
         );
+        if (!$handshake->accepted()) {
+            return new Response($handshake->status, $handshake->headers, $handshake->body);
+        }
 
-        return $handshake->accepted() ? new self($handshake->headers, $handler(...), $maxMessage) : new Response($handshake->status, $handshake->headers, $handshake->body);
+        $subprotocol = \array_change_key_case($handshake->headers)['sec-websocket-protocol'] ?? null;
+        $subprotocol = \is_array($subprotocol) ? $subprotocol[0] : $subprotocol;
+        $callback    = $handler(...);
+        $body        = new WebSocketBody($request->getBody(), $callback, $subprotocol, $maxMessage);
+
+        return new self($handshake->headers, $callback, $maxMessage, $body);
     }
 }

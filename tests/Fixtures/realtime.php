@@ -10,6 +10,7 @@ use phasync\Psr\PsrFactory;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
+use Psr\Http\Message\StreamInterface;
 use Psr\Http\Server\RequestHandlerInterface as Handler;
 use Slim\Factory\AppFactory;
 use Swerve\Psr15\EventStreamResponse;
@@ -17,6 +18,103 @@ use Swerve\Psr15\WebSocketResponse;
 use Swerve\ServerSentEvents;
 use Swerve\Swerve;
 use Swerve\WebSocket;
+
+/**
+ * A passthrough PSR-7 stream that appends every chunk read() gives out to a log file: what a CORS
+ * or logging middleware looks like when it wraps a WebSocket body (outbound, response; inbound,
+ * request) to see the frames flowing through it, as docs/websocket.md's adapters section describes.
+ */
+final class LoggingStream implements StreamInterface
+{
+    public function __construct(private readonly StreamInterface $inner, private readonly string $log)
+    {
+    }
+
+    public function __toString(): string
+    {
+        return $this->getContents();
+    }
+
+    public function close(): void
+    {
+        $this->inner->close();
+    }
+
+    public function detach()
+    {
+        return $this->inner->detach();
+    }
+
+    public function getSize(): ?int
+    {
+        return $this->inner->getSize();
+    }
+
+    public function tell(): int
+    {
+        return $this->inner->tell();
+    }
+
+    public function eof(): bool
+    {
+        return $this->inner->eof();
+    }
+
+    public function isSeekable(): bool
+    {
+        return $this->inner->isSeekable();
+    }
+
+    public function seek($offset, $whence = \SEEK_SET): void
+    {
+        $this->inner->seek($offset, $whence);
+    }
+
+    public function rewind(): void
+    {
+        $this->inner->rewind();
+    }
+
+    public function isWritable(): bool
+    {
+        return $this->inner->isWritable();
+    }
+
+    public function write($string): int
+    {
+        return $this->inner->write($string);
+    }
+
+    public function isReadable(): bool
+    {
+        return $this->inner->isReadable();
+    }
+
+    public function read($length): string
+    {
+        $chunk = $this->inner->read($length);
+        if ('' !== $chunk) {
+            \file_put_contents($this->log, $chunk, \FILE_APPEND | \LOCK_EX);
+        }
+
+        return $chunk;
+    }
+
+    public function getContents(): string
+    {
+        $contents = '';
+        while (!$this->eof()) {
+            $contents .= $this->read(65536);
+        }
+
+        return $contents;
+    }
+
+    public function getMetadata($key = null)
+    {
+        return $this->inner->getMetadata($key);
+    }
+}
 
 $factory = new class extends PsrFactory {
     public function createResponse(int $code = 200, string $reasonPhrase = ''): ResponseInterface
@@ -77,10 +175,52 @@ $app->get('/ws/protocol', fn (Request $request) => WebSocketResponse::from($requ
     $ws->send(\json_encode($ws->subprotocol));
 }, ['v2.chat', 'v1.chat']));
 
-// A middleware that turns the 101 into a refusal has refused the upgrade
-$app->get('/ws/denied', fn (Request $request) => WebSocketResponse::from($request, static function (WebSocket $ws) {
-    $ws->send('never');
+// A middleware that turns the 101 into a refusal has refused the upgrade; the handler never runs
+$app->get('/ws/denied', fn (Request $request) => WebSocketResponse::from($request, static function (WebSocket $ws) use ($counted) {
+    $counted('ws', static function () use ($ws) {
+        $ws->send('never');
+    });
 })->withStatus(403));
+
+// A middleware wraps the response body (outbound frames) with a logging passthrough, as CORS or
+// caching middleware would wrap any other body
+$app->get('/ws/log-out', fn (Request $request) => WebSocketResponse::from($request, static function (WebSocket $ws) use ($counted) {
+    $counted('ws', static function () use ($ws) {
+        foreach ($ws as $message) {
+            if ('bye' === $message) {
+                return;
+            }
+            $up = \strtoupper($message);
+            $ws->isBinary() ? $ws->sendBinary($up) : $ws->send($up);
+        }
+    });
+}))->add(function (Request $request, Handler $next) {
+    $response = $next->handle($request);
+    $log      = $request->getHeaderLine('X-Log');
+
+    return '' === $log ? $response : $response->withBody(new LoggingStream($response->getBody(), $log));
+});
+
+// A middleware wraps the request body (inbound frames) before the route, as one that checks a
+// signature or logs a request body would
+$app->get('/ws/log-in', fn (Request $request) => WebSocketResponse::from($request, static function (WebSocket $ws) use ($counted) {
+    $counted('ws', static function () use ($ws) {
+        foreach ($ws as $message) {
+            if ('bye' === $message) {
+                return;
+            }
+            $up = \strtoupper($message);
+            $ws->isBinary() ? $ws->sendBinary($up) : $ws->send($up);
+        }
+    });
+}))->add(function (Request $request, Handler $next) {
+    $log = $request->getHeaderLine('X-Log');
+    if ('' !== $log) {
+        $request = $request->withBody(new LoggingStream($request->getBody(), $log));
+    }
+
+    return $next->handle($request);
+});
 
 $app->get('/ws/origin', fn (Request $request) => WebSocketResponse::from($request, static function (WebSocket $ws) {
     $ws->send('welcome');

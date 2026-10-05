@@ -382,8 +382,8 @@ function ws_connect(string $addr, string $path, array $headers = [])
     return $conn;
 }
 
-/** Send one frame, masked as a client must. */
-function ws_send($conn, int $opcode, string $payload, bool $fin = true): void
+/** The bytes of a frame a client sends: masked, as the protocol requires. */
+function client_frame(int $opcode, string $payload, bool $fin = true): string
 {
     $n    = \strlen($payload);
     $mask = \random_bytes(4);
@@ -392,7 +392,23 @@ function ws_send($conn, int $opcode, string $payload, bool $fin = true): void
         $n < 65536 => \chr(0x80 | 126) . \pack('n', $n),
         default    => \chr(0x80 | 127) . \pack('J', $n),
     };
-    \fwrite($conn, $head . $mask . ($payload ^ \substr(\str_repeat($mask, \intdiv($n, 4) + 1), 0, $n)));
+
+    return $head . $mask . ($payload ^ \substr(\str_repeat($mask, \intdiv($n, 4) + 1), 0, $n));
+}
+
+/** The bytes of a frame the server sends: FIN, the opcode and the payload, unmasked. */
+function server_frame(int $opcode, string $payload): string
+{
+    $n   = \strlen($payload);
+    $len = $n < 126 ? \chr($n) : ($n < 65536 ? \chr(126) . \pack('n', $n) : \chr(127) . \pack('J', $n));
+
+    return \chr(0x80 | $opcode) . $len . $payload;
+}
+
+/** Send one frame, masked as a client must. */
+function ws_send($conn, int $opcode, string $payload, bool $fin = true): void
+{
+    \fwrite($conn, client_frame($opcode, $payload, $fin));
 }
 
 /**

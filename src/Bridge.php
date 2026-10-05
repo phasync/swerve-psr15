@@ -2,14 +2,15 @@
 
 namespace Swerve\Psr15;
 
+use phasync\IOException;
 use phasync\Psr\ServerRequest;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
+use Psr\Http\Message\StreamInterface;
 use Psr\Http\Server\RequestHandlerInterface;
 use Swerve\ClientRequest;
 use Swerve\RequestHandler;
 use Swerve\ServerSentEvents;
-use Swerve\WebSocket;
 
 /**
  * Turns a swerve {@see ClientRequest} into a PSR-7 request for a PSR-15 handler, and the PSR-7
@@ -23,9 +24,10 @@ use Swerve\WebSocket;
  * memory is fine as long as its stream produces it piecemeal. The response has a Content-Length
  * when the application declared one or its body knows its size, and is otherwise chunked.
  *
- * A {@see WebSocketResponse} with the status 101, or an {@see EventStreamResponse}, is not written as a
- * body: the exchange becomes a WebSocket (the response's headers are the handshake's, as middleware
- * left them), or a stream of events, served by swerve's own codec.
+ * A `101` response ({@see WebSocketResponse}) is sent as a head, then its body pumped until eof: the
+ * body is the outbound WebSocket frames, which a middleware may wrap to see every one, and reading it
+ * is what starts the handler (lazily, on its first byte). An {@see EventStreamResponse} is not written
+ * as a body at all: the exchange becomes a stream of events, served by swerve's own codec.
  *
  * An exception from the handler is swerve's to deal with: a 500 when the head was not sent yet,
  * an aborted connection after, logged either way.
@@ -110,16 +112,19 @@ final class Bridge
      */
     private static function send(ClientRequest $client, ResponseInterface $response): void
     {
-        if ($response instanceof WebSocketResponse && 101 === $response->getStatusCode()) {
-            WebSocket::upgrade($client, $response->getHeaders(), $response->callback, $response->maxMessage);
-
-            return;
-        }
         if ($response instanceof EventStreamResponse) {
             $sse = new ServerSentEvents($client, $response->getHeaders());
             if ('HEAD' !== $client->getMethod()) {
                 ($response->callback)($sse);
             }
+
+            return;
+        }
+        if (101 === $response->getStatusCode()) {
+            $client->sendResponseHeaders(101, $response->getHeaders());
+            $client->flush();
+            self::pumpUpgrade($client, $response->getBody());
+            $client->end();
 
             return;
         }
@@ -142,5 +147,23 @@ final class Bridge
             }
         }
         $client->end();
+    }
+
+    /**
+     * Write a `101`'s body (the outbound frames) to the client until it ends; a write that fails
+     * closes the body, so the handler's own writes fail and it winds down, instead of propagating.
+     */
+    private static function pumpUpgrade(ClientRequest $client, StreamInterface $body): void
+    {
+        try {
+            do {
+                $chunk = $body->read(self::CHUNK);
+                if ('' !== $chunk) {
+                    $client->write($chunk);
+                }
+            } while (!$body->eof());
+        } catch (IOException) {
+            $body->close();
+        }
     }
 }

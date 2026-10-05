@@ -107,9 +107,13 @@ $app->post('/news', function ($request, $response) {
   decorates them like any other. A handshake gets a real `101` response with `Upgrade`, `Connection`,
   `Sec-WebSocket-Accept` and the chosen `Sec-WebSocket-Protocol`; middleware may add headers to it (the
   `Access-Control-*` or `Set-Cookie` of the application's middleware are on the `101` the client sees),
-  and the clones keep the handler and the limit. When the response reaches the adapter, the connection
-  goes to swerve with the response's headers as they are, and the handler runs. A middleware that
-  changes the status of the `101` response has refused the upgrade: it is sent as any response.
+  and the clones keep the handler and the limit.
+- **The `101`'s body is the outbound WebSocket frames; the request's body is read for the inbound ones.**
+  A middleware that `withBody()`s the response sees every frame the client is sent, and one that
+  `withBody()`s the request before the route sees every frame the client sent, like any other body.
+  Nothing of the handler runs, and no coroutine is touched, before the bridge's first read of that body:
+  a middleware that changes the status of the `101` response (a `403`, say) has refused the upgrade, and
+  it is sent as any response — the handler never starts.
 - The event stream has the headers of the response that reaches the adapter, so the `Access-Control-*` or
   `Vary` that middleware added are sent. The status is always 200, and `Content-Type`, `Cache-Control` and
   `X-Accel-Buffering` are swerve's: the response's own are ignored. `Last-Event-ID` is on the PSR request and
