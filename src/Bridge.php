@@ -9,6 +9,8 @@ use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Message\StreamInterface;
 use Psr\Http\Server\RequestHandlerInterface;
 use Swerve\ClientRequest;
+use Swerve\Psr\FormBody;
+use Swerve\Psr\RequestBody;
 use Swerve\RequestHandler;
 use Swerve\ServerSentEvents;
 
