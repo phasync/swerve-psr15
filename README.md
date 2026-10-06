@@ -128,7 +128,6 @@ swerve picks the adapter from what is installed, so `--adapter=` is only needed 
 
 - The default adapter: `swerve.php` returns a `Swerve\RequestHandler`, written against swerve's own
   `ClientRequest`. Use it for anything that is not a PSR-15 application.
-- `phasync/swerve-sapi` runs applications written for PHP's superglobals and `header()`.
 - `phasync/swerve-symfony` runs Symfony's kernel.
 
 `Swerve\Psr15\Bridge::wrap($handler)` returns the `Swerve\RequestHandler` this package builds, for a
