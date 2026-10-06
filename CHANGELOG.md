@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.0-alpha1 (2026-10-06)
 
 ### Added
 
