@@ -301,6 +301,7 @@ dataset('modes', ['plain' => [[]], 'ext' => [['--ext']]]);
 
 /**
  * Serve the realtime fixture in the mode of the dataset ([] or ['--ext']), and check that it is the mode.
+ * When this run already loads the extension for every process (CI's extension leg), the plain mode has it too.
  *
  * @param string[] $mode
  *
@@ -309,7 +310,7 @@ dataset('modes', ['plain' => [[]], 'ext' => [['--ext']]]);
 function rt_start(array $mode, int $workers = 1): array
 {
     $started = psr15_start('realtime.php', $mode, $workers);
-    expect(psr15_get($started[1], '/ext')['body'])->toBe($mode ? '1' : '0');
+    expect(psr15_get($started[1], '/ext')['body'])->toBe($mode || \extension_loaded('phasync') ? '1' : '0');
 
     return $started;
 }
