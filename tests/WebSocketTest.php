@@ -191,7 +191,7 @@ test('maxMessage reaches swerve: a larger message closes with 1009', function (a
     rt_clean($log);
 })->with('modes');
 
-test('server push: a socket forwards what an ordinary Slim route publishes, in order, to every client on both workers', function (array $mode) {
+test('server push: a socket forwards what an ordinary Slim route publishes to every client on both workers', function (array $mode) {
     [$process, $addr, $log] = rt_start($mode, 2);
     try {
         $clients = [];
@@ -209,11 +209,13 @@ test('server push: a socket forwards what an ordinary Slim route publishes, in o
             $request = "POST /publish/news HTTP/1.1\r\nHost: t\r\nContent-Length: " . \strlen("m$n") . "\r\nConnection: close\r\n\r\nm$n";
             expect(psr15_request($addr, $request)['body'])->toBe('published');
         }
+        // Every message reaches every client; swerve orders the messages of one worker, not those of two
         foreach ($clients as $i => $conn) {
             $got = [];
             for ($n = 0; $n < 20; ++$n) {
                 $got[] = ws_read($conn);
             }
+            \usort($got, fn ($a, $b) => (int) \substr($a[1], 1) <=> (int) \substr($b[1], 1));
             expect($got)->toBe(\array_map(fn ($n) => [1, "m$n"], \range(0, 19)), "client $i");
         }
 

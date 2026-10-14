@@ -9,8 +9,9 @@ use Swerve\RequestHandler;
  * The entry point of the `psr15` swerve adapter, which swerve's workers call once each, after the
  * fork, with the application directory (see the `extra.swerve` section of this package's composer.json).
  *
- * Requires `swerve.psr15.php` in the application directory, which returns the application's PSR-15
- * request handler: a Slim `App`, a Mezzio application, or your own.
+ * Loads the application's Composer autoloader (the one of the vendor directory swerve runs from),
+ * then requires `swerve.psr15.php` in the application directory, which returns the application's
+ * PSR-15 request handler: a Slim `App`, a Mezzio application, or your own.
  *
  * ```php
  * // swerve.psr15.php
@@ -27,6 +28,9 @@ use Swerve\RequestHandler;
  */
 function entry(string $appDir): RequestHandler
 {
+    // The application's own autoloader: swerve's worker loads only swerve's dependencies, not the
+    // application's (Slim, its classes)
+    require_once $GLOBALS['_composer_autoload_path'] ?? "$appDir/vendor/autoload.php";
     $file = "$appDir/swerve.psr15.php";
     if (!\is_file($file)) {
         throw new \RuntimeException("$file not found: it returns the application's Psr\\Http\\Server\\RequestHandlerInterface");

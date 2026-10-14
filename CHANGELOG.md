@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- Requires phasync and swerve `dev-main`: phasync's `Scope` + `Frame` and swerve's request model,
+  where each request runs in a `Scope` of its own. Nothing in the bridge depended on contexts.
+- `entry()` loads the application's Composer autoloader (that of the vendor directory swerve runs
+  from) before `swerve.psr15.php`: swerve's worker now loads only swerve's own dependencies, so
+  Slim and the application's classes were not found.
+
+### Fixed
+
+- When the worker stops (SIGTERM, a reload), an open WebSocket's goodbye (1001, or 1012 on a reload)
+  reaches its client: the bridge stopped pumping the `101`'s body at the stop, before the close frame
+  the WebSocket writes then, and the client saw the connection drop.
+
 ## 0.1.0-alpha1 (2026-10-06)
 
 ### Added

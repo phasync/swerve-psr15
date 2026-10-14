@@ -4,6 +4,7 @@ namespace Swerve\Psr15;
 
 use phasync\IOException;
 use phasync\Psr\ServerRequest;
+use phasync\ShutdownException;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Message\StreamInterface;
@@ -175,15 +176,27 @@ final class Bridge
         $fiber = \Fiber::getCurrent();
         self::$upgrading ??= new \WeakMap();
         self::$upgrading[$fiber] = true;
-        try {
+        $pump                    = static function () use ($client, $body) {
             do {
                 $chunk = $body->read(self::CHUNK);
                 if ('' !== $chunk) {
                     $client->write($chunk);
                 }
             } while (!$body->eof());
+        };
+        try {
+            $pump();
         } catch (IOException) {
             $body->close();
+        } catch (ShutdownException $e) {
+            // The worker stops: the WebSocket says goodbye (1001, or 1012 on a reload), shielded, and
+            // ends the body; what it wrote goes out before the exchange ends
+            try {
+                \phasync::shielded($pump);
+            } catch (IOException) {
+                $body->close();
+            }
+            throw $e;
         } finally {
             unset(self::$upgrading[$fiber]);
         }
