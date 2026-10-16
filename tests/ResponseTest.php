@@ -28,7 +28,7 @@ function handshake_request(array $changes = [], string $method = 'GET', ?int $bo
         null === $value ? \array_splice($headers, \array_search($name, \array_keys($headers), true), 1) : $headers[$name] = (array) $value;
     }
 
-    return new ServerRequest($method, '/ws', null === $bodySize ? new UnbufferedStream() : \str_repeat('x', $bodySize), $headers);
+    return new ServerRequest($method, '/ws', null === $bodySize ? new UnbufferedStream() : new \phasync\Psr\StringStream(\str_repeat('x', $bodySize)), $headers);
 }
 
 test('a valid handshake gives a 101 response with the swerve headers, the handler and the limit', function () {
@@ -98,7 +98,7 @@ test('origins and subprotocols are decided by swerve\'s handshake, from the PSR 
 });
 
 test('header names of any case on the PSR request are read', function () {
-    $request = (new ServerRequest('GET', '/ws', ''))
+    $request = (new ServerRequest('GET', '/ws', null))
         ->withHeader('Upgrade', 'websocket')->withHeader('Connection', 'Upgrade')->withHeader('Sec-WebSocket-Key', 'dGhlIHNhbXBsZSBub25jZQ==')->withHeader('Sec-WebSocket-Version', '13');
 
     expect(WebSocketResponse::from($request, static fn () => null)->getStatusCode())->toBe(101);

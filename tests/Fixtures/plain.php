@@ -17,7 +17,7 @@ return new class implements RequestHandlerInterface {
         return match ($request->getUri()->getPath()) {
             '/throw'        => throw new RuntimeException('the handler failed'),
             '/stream-throw' => new Response(200, ['Content-Type' => 'text/plain'], new FailingStream()),
-            default         => new Response(200, ['Content-Type' => 'text/plain'], 'ok'),
+            default         => new Response(200, ['Content-Type' => 'text/plain'], new \phasync\Psr\StringStream('ok')),
         };
     }
 };

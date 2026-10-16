@@ -119,7 +119,7 @@ final class LoggingStream implements StreamInterface
 $factory = new class extends PsrFactory {
     public function createResponse(int $code = 200, string $reasonPhrase = ''): ResponseInterface
     {
-        return new phasync\Psr\Response($code, [], \fopen('php://temp', 'w+'), '1.1', $reasonPhrase);
+        return new phasync\Psr\Response($code, [], new phasync\Psr\ResourceStream(\fopen('php://temp', 'w+')), '1.1', $reasonPhrase);
     }
 };
 $app = AppFactory::create($factory);

@@ -3,6 +3,7 @@
 namespace Swerve\Psr15;
 
 use phasync\Psr\Response;
+use phasync\Psr\StringStream;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Swerve\WebSocket;
@@ -79,7 +80,7 @@ final class WebSocketResponse extends Response
             $origins,
         );
         if (!$handshake->accepted()) {
-            return new Response($handshake->status, $handshake->headers, $handshake->body);
+            return new Response($handshake->status, $handshake->headers, new StringStream($handshake->body));
         }
 
         $subprotocol = \array_change_key_case($handshake->headers)['sec-websocket-protocol'] ?? null;

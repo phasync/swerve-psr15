@@ -207,7 +207,7 @@ test('the request as the application sees it', function () {
     $info     = \json_decode($response['body'], true);
 
     expect($info['method'])->toBe('GET');
-    expect($info['uri'])->toBe('http://example.test:8080/info?a=1&b[]=2&b[]=3');
+    expect($info['uri'])->toBe('http://example.test:8080/info?a=1&b%5B%5D=2&b%5B%5D=3');
     expect($info['target'])->toBe('/info?a=1&b[]=2&b[]=3');
     expect($info['query'])->toBe(['a' => '1', 'b' => ['2', '3']]);
     expect($info['version'])->toBe('1.1');
