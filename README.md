@@ -61,6 +61,8 @@ state in an instance property, or a container definition that hands out one shar
 PDO connection, say) instead of a new one per request, is exactly what breaks under that
 concurrency. See [Making your application safe for concurrent
 requests](https://phasync.github.io/guides/concurrent-requests-in-your-application/).
+[phasync/doctor](https://github.com/phasync/doctor) lists the candidates in your code:
+`composer require --dev phasync/doctor`, then `vendor/bin/phasync-doctor`.
 
 ## WebSockets and Server-Sent Events
 
