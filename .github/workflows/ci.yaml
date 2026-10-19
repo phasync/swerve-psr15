@@ -45,16 +45,9 @@ jobs:
         run: vendor/bin/pest --stop-on-defect
 
       - name: ✅ Tests with the phasync extension
-        env:
-          PHASYNC_CI_LICENSE: ${{ secrets.PHASYNC_CI_LICENSE }}
         run: |
           # swerve's processes inherit the scanned ini directory, which -d would not reach
           mkdir "$RUNNER_TEMP/ini"
           echo "extension=$PWD/vendor/phasync/phasync/ext/phasync-${{ matrix.php }}-nts-x86_64-glibc.so" > "$RUNNER_TEMP/ini/phasync.ini"
           PHP_INI_SCAN_DIR=":$RUNNER_TEMP/ini" php -r 'extension_loaded("phasync") || exit(1);'
-          # without the secret the extension runs on its free tier
-          if [ -n "$PHASYNC_CI_LICENSE" ]; then
-            printf '%s' "$PHASYNC_CI_LICENSE" > "$RUNNER_TEMP/phasync.license"
-            export PHASYNC_LICENSE_FILE="$RUNNER_TEMP/phasync.license"
-          fi
           PHP_INI_SCAN_DIR=":$RUNNER_TEMP/ini" vendor/bin/pest --stop-on-defect

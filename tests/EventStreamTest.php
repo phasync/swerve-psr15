@@ -2,7 +2,7 @@
 
 /*
  * EventStreamResponse in Slim routes, from the outside with raw sockets, once without and once with
- * phasync-ext. The wire format is swerve's ServerSentEvents; this is about what a PSR-15 handler
+ * ext-phasync. The wire format is swerve's ServerSentEvents; this is about what a PSR-15 handler
  * can ask for, and the headers that middleware adds on the way.
  */
 
@@ -94,6 +94,8 @@ test('events published by an ordinary route reach every stream on both workers, 
                     $got[] = $chunk;
                 }
             }
+            // publishes from two workers have no order between them (swerve's publish-subscribe docs)
+            \sort($got);
             expect($got)->toBe(\array_map(fn ($n) => "event: news\ndata: m$n\n\n", \range(0, 9)), "client $i");
         }
 

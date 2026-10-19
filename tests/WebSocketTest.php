@@ -2,7 +2,7 @@
 
 /*
  * WebSocketResponse in Slim routes, from the outside with raw sockets, once without and once with
- * phasync-ext: nothing may differ. The frames and close codes are swerve's and tested there; this
+ * ext-phasync: nothing may differ. The frames and close codes are swerve's and tested there; this
  * is about what a PSR-15 handler can ask for.
  *
  * Nothing is slept for: a test waits for the condition it needs, with a generous deadline.

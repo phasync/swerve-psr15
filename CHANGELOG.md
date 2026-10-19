@@ -1,41 +1,5 @@
 # Changelog
 
-## Unreleased
+## 0.1.0 (2026-10-19)
 
-### Changed
-
-- Requires phasync and swerve `dev-main`: phasync's `Scope` + `Frame` and swerve's request model,
-  where each request runs in a `Scope` of its own. Nothing in the bridge depended on contexts.
-- `entry()` loads the application's Composer autoloader (that of the vendor directory swerve runs
-  from) before `swerve.psr15.php`: swerve's worker now loads only swerve's own dependencies, so
-  Slim and the application's classes were not found.
-
-### Fixed
-
-- When the worker stops (SIGTERM, a reload), an open WebSocket's goodbye (1001, or 1012 on a reload)
-  reaches its client: the bridge stopped pumping the `101`'s body at the stop, before the close frame
-  the WebSocket writes then, and the client saw the connection drop.
-
-## 0.1.0-alpha1 (2026-10-06)
-
-### Added
-
-- `Swerve\Psr15\entry()`, the adapter's entry point for swerve: it requires `swerve.psr15.php`, which
-  returns a `Psr\Http\Server\RequestHandlerInterface`, and serves it.
-- `Swerve\Psr15\Bridge::wrap()`, which turns any PSR-15 handler into a `Swerve\RequestHandler`: the
-  request is a `phasync\Psr\ServerRequest` over a lazy, streaming body, with PHP-compatible form parsing
-  (`getParsedBody()`, `getUploadedFiles()`), and the response is streamed to the client in chunks.
-- `Swerve\Psr15\WebSocketResponse::from($request, $handler, ...)`: takes the PSR request, checks the
-  handshake with swerve's `WebSocket::handshake()` and returns an ordinary PSR-7 response: the refusal
-  swerve would send (426, 400 or 403), which middleware decorates like any response, or a real `101`
-  with the handshake headers, which middleware may add headers to and whose clones keep the handler and
-  the message size limit. The `101`'s body is the outbound WebSocket frames, and the request's body is
-  read for the inbound ones: a middleware that `withBody()`s either sees every frame, like any other
-  body. Nothing runs, and no coroutine is touched, before the bridge's first read of that body: it is
-  what starts the handler (over `WebSocket::run()`, swerve's entry for a connection whose `101` the
-  bridge already sent), so a middleware that turns the `101` into another response never starts one.
-  The handler is swerve's `WebSocket`, the same in every adapter; there are subprotocols, an origin
-  allow-list and a message size limit.
-- `Swerve\Psr15\EventStreamResponse::stream()`: a PSR-7 response that streams Server-Sent Events from a
-  callback receiving swerve's `ServerSentEvents`; the headers on the response, including those that
-  middleware added, are sent with the head.
+The first release.

@@ -19,6 +19,6 @@ return new class implements RequestHandlerInterface {
             return \array_map($walk, $f);
         };
 
-        return new Response(200, ['Content-Type' => 'application/json'], new \phasync\Psr\StringStream(\json_encode(['post' => $request->getParsedBody(), 'files' => $walk($request->getUploadedFiles()), 'input' => (string) $request->getBody()])));
+        return new Response(200, ['Content-Type' => 'application/json'], new phasync\Psr\StringStream(\json_encode(['post' => $request->getParsedBody(), 'files' => $walk($request->getUploadedFiles()), 'input' => (string) $request->getBody()])));
     }
 };

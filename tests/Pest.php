@@ -3,7 +3,7 @@
 /*
  * The tests run the adapter the way users do: a real `vendor/bin/swerve` serving an application
  * directory, with raw sockets as the clients. Every swerve runs in a process group of its own,
- * which is killed after the test. To run the suite with phasync-ext, put it in the ini files
+ * which is killed after the test. To run the suite with ext-phasync, put it in the ini files
  * PHP scans (PHP_INI_SCAN_DIR=:/dir/with/ext.ini): the swerve processes inherit it.
  */
 

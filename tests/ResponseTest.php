@@ -28,7 +28,7 @@ function handshake_request(array $changes = [], string $method = 'GET', ?int $bo
         null === $value ? \array_splice($headers, \array_search($name, \array_keys($headers), true), 1) : $headers[$name] = (array) $value;
     }
 
-    return new ServerRequest($method, '/ws', null === $bodySize ? new UnbufferedStream() : new \phasync\Psr\StringStream(\str_repeat('x', $bodySize)), $headers);
+    return new ServerRequest($method, '/ws', null === $bodySize ? new UnbufferedStream() : new phasync\Psr\StringStream(\str_repeat('x', $bodySize)), $headers);
 }
 
 test('a valid handshake gives a 101 response with the swerve headers, the handler and the limit', function () {
