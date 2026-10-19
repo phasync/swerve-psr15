@@ -55,6 +55,13 @@ at start with exit code 2 and says what was returned.
 - An exception from the handler is logged, and answered with a 500 if the head was not sent yet; after
   that, the connection is aborted.
 
+**Running correctly on swerve does not mean your application is safe for it.** Slim and other
+PSR-15 stacks run requests concurrently in one worker: a middleware or handler that keeps request
+state in an instance property, or a container definition that hands out one shared instance (a
+PDO connection, say) instead of a new one per request, is exactly what breaks under that
+concurrency. See [Making your application safe for concurrent
+requests](https://phasync.github.io/guides/concurrent-requests-in-your-application/).
+
 ## WebSockets and Server-Sent Events
 
 A handler asks for a WebSocket or an event stream by returning a response. swerve itself speaks the
